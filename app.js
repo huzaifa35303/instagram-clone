@@ -1,4 +1,4 @@
-// Instagram Clone - Full-Stack Client with Supabase Auth, Database & Storage
+// Instagram Clone - Production-Grade Full-Stack Engine (Supabase Auth, DB, Realtime & UI)
 
 // 1. Supabase Initialization
 const SUPABASE_URL = "https://skpnwtngipfdyubgdrsa.supabase.co";
@@ -13,12 +13,14 @@ if (window.supabase) {
   }
 }
 
-// Current Logged-In User State
+// Current State
 let currentUser = null;
 let currentProfile = null;
-let authMode = "signup"; // "signup" or "login"
+let authMode = "signup";
+let currentProfileTab = "posts";
+let selectedPostIdForOptions = null;
 
-// Default Rich Mock Data (Used for instant high-quality display and fallback)
+// Initial Rich Mock Data
 const defaultStories = [
   {
     id: "s1",
@@ -199,6 +201,7 @@ async function checkAuthSession() {
   }
   updateAuthUI();
   fetchLivePosts();
+  initRealtimeSubscriptions();
 }
 
 async function fetchUserProfile(userId) {
@@ -213,17 +216,16 @@ async function fetchUserProfile(userId) {
     if (data) {
       currentProfile = data;
     } else {
-      // Default fallback profile from metadata
       currentProfile = {
         id: userId,
         username: currentUser?.user_metadata?.username || currentUser?.email?.split("@")[0] || "instagrammer",
         full_name: currentUser?.user_metadata?.full_name || "Instagram User",
         avatar_url: currentUser?.user_metadata?.avatar_url || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80",
-        bio: "Just joined Instagram ✨"
+        bio: "Welcome to my Instagram ✨"
       };
     }
   } catch (err) {
-    console.error("Profile fetch error:", err);
+    console.warn("Profile fetch fallback:", err);
   }
 }
 
@@ -232,10 +234,8 @@ function updateAuthUI() {
   const username = currentProfile?.username || "Guest";
   const fullName = currentProfile?.full_name || (currentUser ? "Instagram User" : "Sign in to post & like");
 
-  // Update Nav Avatar
   document.querySelectorAll(".user-nav-avatar").forEach(img => img.src = userAvatar);
-  
-  // Update Right Sidebar Profile
+
   const curNameEl = document.querySelector(".current-user-name");
   const curHandleEl = document.querySelector(".current-user-handle");
   const curAvatarEl = document.querySelector(".current-user-avatar");
@@ -255,7 +255,6 @@ function updateAuthUI() {
     }
   }
 
-  // Update Profile View Header
   const profileUsernameEl = document.querySelector(".profile-username");
   const profileBioNameEl = document.querySelector(".profile-bio-name");
   const profileAvatarLarge = document.querySelector(".profile-avatar-large");
@@ -331,8 +330,8 @@ async function handleAuthSubmit(e) {
         }
       });
       if (error) throw error;
-      
-      showNotificationToast("Account created successfully! Welcome to Instagram ✨");
+
+      showNotificationToast("Account created successfully! Welcome ✨");
       currentUser = data.user;
       await fetchUserProfile(data.user.id);
       updateAuthUI();
@@ -385,9 +384,8 @@ async function fetchLivePosts() {
       .order("created_at", { ascending: false });
 
     if (!error && dbPosts && dbPosts.length > 0) {
-      // Map Supabase rows to post structure
       const mapped = dbPosts.map(p => {
-        const isLiked = currentUser ? p.likes.some(l => l.user_id === currentUser.id) : false;
+        const isLiked = currentUser && p.likes ? p.likes.some(l => l.user_id === currentUser.id) : false;
         return {
           id: p.id,
           author: p.profiles?.username || "instagrammer",
@@ -421,6 +419,20 @@ async function fetchLivePosts() {
   renderProfileGrid();
 }
 
+function initRealtimeSubscriptions() {
+  if (!supabase) return;
+  try {
+    supabase
+      .channel("public-posts-feed")
+      .on("postgres_changes", { event: "*", schema: "public", table: "posts" }, () => {
+        fetchLivePosts();
+      })
+      .subscribe();
+  } catch (err) {
+    console.warn("Realtime channel subscription error:", err);
+  }
+}
+
 function timeAgo(dateString) {
   if (!dateString) return "JUST NOW";
   const seconds = Math.floor((new Date() - new Date(dateString)) / 1000);
@@ -433,7 +445,7 @@ function timeAgo(dateString) {
   return `${days}D AGO`;
 }
 
-// 4. DOM Rendering
+// 4. Rendering Functions
 function renderStories() {
   const container = document.getElementById("stories-tray");
   if (!container) return;
@@ -467,7 +479,6 @@ function renderPosts() {
     card.id = `post-${post.id}`;
 
     card.innerHTML = `
-      <!-- Header -->
       <header class="post-header">
         <div class="post-user-info">
           <div class="post-avatar-ring">
@@ -483,18 +494,16 @@ function renderPosts() {
             ${post.location ? `<span class="post-location">${post.location}</span>` : ""}
           </div>
         </div>
-        <button class="post-options-btn" onclick="showNotificationToast('Post Options')">
+        <button class="post-options-btn" onclick="openPostOptions('${post.id}')">
           <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><circle cx="12" cy="12" r="1.5"></circle><circle cx="6" cy="12" r="1.5"></circle><circle cx="18" cy="12" r="1.5"></circle></svg>
         </button>
       </header>
 
-      <!-- Media -->
-      <div class="post-media-container" ondblclick="handleDoubleTapHeart('${post.id}')">
+      <div class="post-media-container" id="media-box-${post.id}" ondblclick="handleDoubleTapHeart('${post.id}')">
         <img class="post-media-img" src="${post.postImage}" alt="post media" loading="lazy">
         <svg class="heart-pop" id="heart-pop-${post.id}" viewBox="0 0 24 24" fill="#ffffff"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
       </div>
 
-      <!-- Action Buttons -->
       <div class="post-actions-bar">
         <div class="action-buttons-left">
           <button class="action-btn ${post.isLiked ? "liked" : ""}" id="like-btn-${post.id}" onclick="toggleLikePost('${post.id}')">
@@ -512,18 +521,17 @@ function renderPosts() {
         </button>
       </div>
 
-      <!-- Likes Count -->
       <div class="post-likes-count" id="likes-count-${post.id}">
         ${post.likes.toLocaleString()} likes
       </div>
 
-      <!-- Caption -->
       <div class="post-caption-box">
         <span class="post-caption-author">${post.author}</span>
         <span class="post-caption-text">${formatCaption(post.caption)}</span>
       </div>
 
-      <!-- Comments List -->
+      ${post.comments.length > 0 ? `<button class="view-comments-btn" onclick="toggleExpandComments('${post.id}')">View all ${post.comments.length} comments</button>` : ""}
+
       <div class="post-comments-preview" id="comments-list-${post.id}">
         ${post.comments.map(c => `
           <div class="single-comment">
@@ -536,7 +544,8 @@ function renderPosts() {
         `).join("")}
       </div>
 
-      <!-- Add Comment Row -->
+      <div style="font-size: 10px; color: var(--text-secondary); margin-bottom: 8px; letter-spacing: 0.2px;">${post.time}</div>
+
       <div class="add-comment-row">
         <button class="emoji-btn" onclick="showNotificationToast('Emoji selector')">
           <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm0 18c-4.411 0-8-3.589-8-8s3.589-8 8-8 8 3.589 8 8-3.589 8-8 8zm-3-9a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm6 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm-3 7c2.607 0 4.795-1.745 5.5-4h-11c.705 2.255 2.893 4 5.5 4z"/></svg>
@@ -547,11 +556,33 @@ function renderPosts() {
     `;
 
     container.appendChild(card);
+
+    // Mobile rapid double-tap touch listener
+    const mediaBox = card.querySelector(`#media-box-${post.id}`);
+    let lastTap = 0;
+    if (mediaBox) {
+      mediaBox.addEventListener("touchend", (e) => {
+        const currentTime = new Date().getTime();
+        const tapLength = currentTime - lastTap;
+        if (tapLength < 300 && tapLength > 0) {
+          handleDoubleTapHeart(post.id);
+          e.preventDefault();
+        }
+        lastTap = currentTime;
+      });
+    }
   });
 }
 
 function formatCaption(caption) {
   return caption.replace(/#(\w+)/g, '<span class="hashtag">#$1</span>');
+}
+
+function toggleExpandComments(postId) {
+  const list = document.getElementById(`comments-list-${postId}`);
+  if (list) {
+    list.style.maxHeight = list.style.maxHeight === "none" ? "120px" : "none";
+  }
 }
 
 function renderSuggestions() {
@@ -602,15 +633,47 @@ function renderProfileGrid() {
   if (!container) return;
   container.innerHTML = "";
 
-  const profileItems = [
-    ...postsData.map(p => ({ img: p.postImage, likes: p.likes.toLocaleString(), comments: p.comments.length })),
-    ...exploreImages.slice(0, 3)
-  ];
+  let itemsToRender = [];
+
+  if (currentProfileTab === "posts") {
+    itemsToRender = [
+      ...postsData.map(p => ({ img: p.postImage, likes: p.likes.toLocaleString(), comments: p.comments.length })),
+      ...exploreImages.slice(0, 3)
+    ];
+  } else if (currentProfileTab === "saved") {
+    itemsToRender = postsData
+      .filter(p => p.isSaved)
+      .map(p => ({ img: p.postImage, likes: p.likes.toLocaleString(), comments: p.comments.length }));
+
+    if (itemsToRender.length === 0) {
+      container.innerHTML = `
+        <div class="empty-state-box">
+          <div class="empty-state-icon">
+            <svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.8"><polygon points="20 21 12 13.44 4 21 4 3 20 3 20 21"></polygon></svg>
+          </div>
+          <div class="empty-state-title">Save Posts</div>
+          <p>Save photos and videos that you want to see again. No one is notified, and only you can see what you've saved.</p>
+        </div>
+      `;
+      return;
+    }
+  } else if (currentProfileTab === "tagged") {
+    container.innerHTML = `
+      <div class="empty-state-box">
+        <div class="empty-state-icon">
+          <svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"></path></svg>
+        </div>
+        <div class="empty-state-title">Photos of you</div>
+        <p>When people tag you in photos, they'll appear here.</p>
+      </div>
+    `;
+    return;
+  }
 
   const postCountEl = document.getElementById("profile-post-count");
-  if (postCountEl) postCountEl.innerText = profileItems.length;
+  if (postCountEl) postCountEl.innerText = itemsToRender.length;
 
-  profileItems.forEach(item => {
+  itemsToRender.forEach(item => {
     const div = document.createElement("div");
     div.className = "grid-item";
     div.innerHTML = `
@@ -738,7 +801,7 @@ function renderReels() {
   });
 }
 
-// 5. User Actions (Like, Comment, Save)
+// 5. User Interaction Handlers
 async function toggleLikePost(postId) {
   if (!currentUser) {
     openAuthModal("login");
@@ -758,7 +821,6 @@ async function toggleLikePost(postId) {
   if (likeBtn) likeBtn.classList.toggle("liked", post.isLiked);
   if (likesCountEl) likesCountEl.innerText = `${post.likes.toLocaleString()} likes`;
 
-  // Sync with Supabase if UUID
   if (supabase && typeof postId === "string" && postId.length > 20) {
     try {
       if (post.isLiked) {
@@ -804,6 +866,7 @@ function toggleSavePost(postId) {
   if (saveBtn) saveBtn.classList.toggle("saved", post.isSaved);
 
   showNotificationToast(post.isSaved ? "Saved to your collection" : "Removed from saved");
+  if (currentProfileTab === "saved") renderProfileGrid();
 }
 
 function sharePost(postId) {
@@ -869,7 +932,6 @@ async function submitComment(postId) {
   input.value = "";
   checkCommentInput(postId);
 
-  // Sync comment to Supabase
   if (supabase && typeof postId === "string" && postId.length > 20) {
     try {
       await supabase.from("comments").insert({
@@ -902,16 +964,20 @@ function toggleFollow(idx, btn) {
   btn.classList.toggle("following", item.isFollowing);
 }
 
-// 6. Navigation
+// 6. Navigation Controller
 function switchNav(viewName) {
   document.querySelectorAll(".view-panel").forEach(panel => panel.classList.remove("active"));
   document.querySelectorAll(".nav-item").forEach(item => item.classList.remove("active"));
+  document.querySelectorAll(".mobile-bottom-bar .action-btn").forEach(item => item.classList.remove("active"));
 
   const targetPanel = document.getElementById(`view-${viewName}`);
   if (targetPanel) targetPanel.classList.add("active");
 
   const navItem = document.querySelector(`.nav-item[data-nav="${viewName}"]`);
   if (navItem) navItem.classList.add("active");
+
+  const mobileBtn = document.querySelector(`.mobile-bottom-bar .action-btn[data-nav="${viewName}"]`);
+  if (mobileBtn) mobileBtn.classList.add("active");
 
   window.scrollTo({ top: 0, behavior: "smooth" });
 
@@ -921,16 +987,123 @@ function switchNav(viewName) {
   if (viewName === "profile") renderProfileGrid();
 }
 
-function switchProfileTab(tabName) {
+function switchProfileTab(tabName, btnElement) {
+  currentProfileTab = tabName;
   document.querySelectorAll(".profile-tab-btn").forEach(btn => btn.classList.remove("active"));
-  event.currentTarget.classList.add("active");
+  if (btnElement) {
+    btnElement.classList.add("active");
+  }
   renderProfileGrid();
 }
 
-// 7. Fullscreen Story Viewer
+// 7. Post Options Action Sheet
+function openPostOptions(postId) {
+  selectedPostIdForOptions = postId;
+  const modal = document.getElementById("post-options-modal");
+  if (modal) modal.classList.add("active");
+}
+
+function closePostOptionsModal() {
+  const modal = document.getElementById("post-options-modal");
+  if (modal) modal.classList.remove("active");
+  selectedPostIdForOptions = null;
+}
+
+function copyCurrentPostLink() {
+  navigator.clipboard?.writeText(window.location.href);
+  showNotificationToast("Link copied to clipboard");
+}
+
+function shareCurrentPost() {
+  if (navigator.share) {
+    navigator.share({
+      title: "Instagram Post",
+      url: window.location.href
+    }).catch(() => {});
+  } else {
+    copyCurrentPostLink();
+  }
+}
+
+// 8. Search System
+function openSearchModal() {
+  const modal = document.getElementById("search-modal");
+  if (!modal) return;
+  modal.classList.add("active");
+
+  const input = document.getElementById("search-input");
+  if (input) {
+    input.value = "";
+    setTimeout(() => input.focus(), 100);
+  }
+  renderSearchResults("");
+}
+
+function closeSearchModal() {
+  const modal = document.getElementById("search-modal");
+  if (modal) modal.classList.remove("active");
+}
+
+function handleSearchInput(query) {
+  const clearBtn = document.getElementById("search-clear-btn");
+  if (clearBtn) clearBtn.style.display = query.length > 0 ? "block" : "none";
+  renderSearchResults(query.trim().toLowerCase());
+}
+
+function clearSearch() {
+  const input = document.getElementById("search-input");
+  if (input) {
+    input.value = "";
+    input.focus();
+  }
+  handleSearchInput("");
+}
+
+function renderSearchResults(query) {
+  const list = document.getElementById("search-results-list");
+  if (!list) return;
+  list.innerHTML = "";
+
+  const allAccounts = [
+    ...suggestionsData,
+    { username: "natgeo", displayName: "National Geographic", avatar: "https://images.unsplash.com/photo-1534447677768-be436bb09401?auto=format&fit=crop&w=150&q=80", context: "Popular" },
+    { username: "techinsider", displayName: "Tech Insider", avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=150&q=80", context: "Verified" },
+    { username: "cyber_aesthetic", displayName: "Cyber Aesthetic", avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=150&q=80", context: "Creator" }
+  ];
+
+  let filtered = allAccounts;
+  if (query) {
+    filtered = allAccounts.filter(a => a.username.toLowerCase().includes(query) || a.displayName.toLowerCase().includes(query));
+  }
+
+  if (filtered.length === 0) {
+    list.innerHTML = `<div style="text-align: center; color: var(--text-secondary); padding: 30px;">No accounts found for "${query}"</div>`;
+    return;
+  }
+
+  filtered.forEach(acc => {
+    const item = document.createElement("div");
+    item.className = "search-result-item";
+    item.onclick = () => {
+      closeSearchModal();
+      showNotificationToast(`Opened @${acc.username}'s profile`);
+    };
+    item.innerHTML = `
+      <img class="search-result-avatar" src="${acc.avatar}" alt="${acc.username}">
+      <div class="search-result-meta">
+        <span class="search-result-username">${acc.username}</span>
+        <span class="search-result-sub">${acc.displayName} • ${acc.context}</span>
+      </div>
+    `;
+    list.appendChild(item);
+  });
+}
+
+// 9. Fullscreen Story Viewer with Pause-on-Hold
 let currentStoryIdx = 0;
 let storyTimer = null;
 let storyProgress = 0;
+let isStoryPaused = false;
 
 function openStoryViewer(idx) {
   currentStoryIdx = idx;
@@ -939,11 +1112,21 @@ function openStoryViewer(idx) {
 
   modal.classList.add("active");
   loadStory(currentStoryIdx);
+
+  // Bind hold-to-pause
+  const card = modal.querySelector(".story-card-view");
+  if (card) {
+    card.onmousedown = pauseStory;
+    card.onmouseup = resumeStory;
+    card.ontouchstart = pauseStory;
+    card.ontouchend = resumeStory;
+  }
 }
 
 function loadStory(idx) {
   clearInterval(storyTimer);
   storyProgress = 0;
+  isStoryPaused = false;
 
   const story = storiesData[idx];
   if (!story) {
@@ -962,19 +1145,35 @@ function loadStory(idx) {
   const fill = document.getElementById("story-progress-fill");
   fill.style.width = "0%";
 
+  startStoryTimer();
+}
+
+function startStoryTimer() {
+  clearInterval(storyTimer);
+  const fill = document.getElementById("story-progress-fill");
   const duration = 5000;
   const interval = 50;
   const step = (interval / duration) * 100;
 
   storyTimer = setInterval(() => {
-    storyProgress += step;
-    fill.style.width = `${Math.min(storyProgress, 100)}%`;
+    if (!isStoryPaused) {
+      storyProgress += step;
+      fill.style.width = `${Math.min(storyProgress, 100)}%`;
 
-    if (storyProgress >= 100) {
-      clearInterval(storyTimer);
-      navigateStory(1);
+      if (storyProgress >= 100) {
+        clearInterval(storyTimer);
+        navigateStory(1);
+      }
     }
   }, interval);
+}
+
+function pauseStory() {
+  isStoryPaused = true;
+}
+
+function resumeStory() {
+  isStoryPaused = false;
 }
 
 function navigateStory(direction) {
@@ -989,13 +1188,42 @@ function navigateStory(direction) {
 
 function closeStoryViewer() {
   clearInterval(storyTimer);
+  isStoryPaused = false;
   const modal = document.getElementById("story-viewer-modal");
   if (modal) modal.classList.remove("active");
 }
 
-// 8. Create Post Workflow (Upload to Supabase Storage)
+// 10. Create Post with Drag & Drop & Canvas Compression
 let stagedImage = null;
 let stagedFile = null;
+
+function setupDragAndDrop() {
+  const dropzone = document.getElementById("create-dropzone");
+  if (!dropzone) return;
+
+  ["dragenter", "dragover", "dragleave", "drop"].forEach(eventName => {
+    dropzone.addEventListener(eventName, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    }, false);
+  });
+
+  ["dragenter", "dragover"].forEach(eventName => {
+    dropzone.addEventListener(eventName, () => dropzone.style.borderColor = "var(--accent-blue)", false);
+  });
+
+  ["dragleave", "drop"].forEach(eventName => {
+    dropzone.addEventListener(eventName, () => dropzone.style.borderColor = "var(--border-light)", false);
+  });
+
+  dropzone.addEventListener("drop", (e) => {
+    const dt = e.dataTransfer;
+    const file = dt.files[0];
+    if (file && file.type.startsWith("image/")) {
+      processStagedImageFile(file);
+    }
+  }, false);
+}
 
 function openCreateModal() {
   if (!currentUser) {
@@ -1020,16 +1248,43 @@ function closeCreateModal() {
 function handleFileUpload(e) {
   const file = e.target.files[0];
   if (!file) return;
+  processStagedImageFile(file);
+}
 
+function processStagedImageFile(file) {
   stagedFile = file;
   const reader = new FileReader();
   reader.onload = function(evt) {
-    stagedImage = evt.target.result;
-    document.getElementById("create-preview-image").src = stagedImage;
-    document.getElementById("create-dropzone").style.display = "none";
-    document.getElementById("create-preview-area").style.display = "flex";
+    // Compress and prepare preview
+    compressImage(evt.target.result, 1080, 0.85, (compressedDataUrl) => {
+      stagedImage = compressedDataUrl;
+      document.getElementById("create-preview-image").src = stagedImage;
+      document.getElementById("create-dropzone").style.display = "none";
+      document.getElementById("create-preview-area").style.display = "flex";
+    });
   };
   reader.readAsDataURL(file);
+}
+
+function compressImage(base64Str, maxWidth, quality, callback) {
+  const img = new Image();
+  img.src = base64Str;
+  img.onload = () => {
+    const canvas = document.createElement("canvas");
+    let width = img.width;
+    let height = img.height;
+
+    if (width > maxWidth) {
+      height = Math.round((height * maxWidth) / width);
+      width = maxWidth;
+    }
+
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(img, 0, 0, width, height);
+    callback(canvas.toDataURL("image/jpeg", quality));
+  };
 }
 
 async function submitNewPost() {
@@ -1047,7 +1302,6 @@ async function submitNewPost() {
 
   let publicUrl = stagedImage;
 
-  // Upload to Supabase Storage if available
   if (supabase && currentUser && stagedFile) {
     try {
       const fileExt = stagedFile.name.split(".").pop();
@@ -1067,7 +1321,6 @@ async function submitNewPost() {
         if (urlData?.publicUrl) publicUrl = urlData.publicUrl;
       }
 
-      // Insert record into Supabase posts table
       await supabase.from("posts").insert({
         user_id: currentUser.id,
         image_url: publicUrl,
@@ -1075,11 +1328,10 @@ async function submitNewPost() {
         location: locationText || ""
       });
     } catch (err) {
-      console.warn("Storage upload error, using local data URL:", err);
+      console.warn("Storage upload error:", err);
     }
   }
 
-  // Local optimistic update
   const newPost = {
     id: Date.now().toString(),
     author: currentProfile?.username || "huzaifa_official",
@@ -1105,7 +1357,7 @@ async function submitNewPost() {
   shareBtn.style.opacity = "1";
 }
 
-// 9. Theme Toggle
+// 11. Theme Switcher
 function toggleTheme() {
   const current = document.documentElement.getAttribute("data-theme");
   const next = current === "dark" ? "light" : "dark";
@@ -1127,11 +1379,7 @@ function showNotificationToast(msg) {
   setTimeout(() => {
     toast.style.opacity = "0";
     toast.style.pointerEvents = "none";
-  }, 2200);
-}
-
-function openSearchModal() {
-  showNotificationToast("Search: type to find accounts, tags, and places");
+  }, 2400);
 }
 
 // Global Shortcuts
@@ -1140,6 +1388,8 @@ window.addEventListener("keydown", (e) => {
     closeStoryViewer();
     closeCreateModal();
     closeAuthModal();
+    closeSearchModal();
+    closePostOptionsModal();
   }
 });
 
@@ -1153,7 +1403,8 @@ document.addEventListener("DOMContentLoaded", () => {
   renderSuggestions();
   renderExploreGrid();
   renderProfileGrid();
+  setupDragAndDrop();
 
-  // Initialize Supabase Auth & Live Posts
+  // Initialize Supabase Auth & Live Feed
   checkAuthSession();
 });
